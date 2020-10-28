@@ -8,7 +8,6 @@ import locale
 import time
 import datetime
 import ephem
-import pigpio
 import socket
 import signal, atexit, subprocess, traceback
 import logging, logging.handlers

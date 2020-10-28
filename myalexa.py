@@ -12,7 +12,6 @@ import os
 import re
 import time
 import locale
-import pigpio
 import socket
 import signal, atexit, subprocess, traceback
 import threading
