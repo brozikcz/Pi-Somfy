@@ -28,7 +28,7 @@ class MQTT(threading.Thread, MyLog):
         threading.Thread.__init__(self, group=group, target=target, name="MQTT")
         self.shutdown_flag = threading.Event()
 
-        self.t = ()        
+        self.t = ()
         self.args = args
         self.kwargs = kwargs
         if kwargs["log"] != None:
@@ -37,7 +37,7 @@ class MQTT(threading.Thread, MyLog):
             self.shutter = kwargs["shutter"]
         if kwargs["config"] != None:
             self.config = kwargs["config"]
-            
+
         return
 
     def receiveMessageFromMQTT(self, client, userdata, message):
@@ -46,7 +46,13 @@ class MQTT(threading.Thread, MyLog):
             msg = str(message.payload.decode("utf-8"))
             topic = message.topic
             self.LogInfo("message received from MQTT: "+topic+" = "+msg)
-    
+
+            data = topic.split("/")
+            if data[0] == "homeassistant" and data[1] == "status":
+                if msg == "online":
+                    self.sendStartupInfo()
+                return
+
             [prefix, shutterId, property, command] = topic.split("/")
             if (command == "cmd"):
                 self.LogInfo("sending message: "+str(msg))
@@ -60,23 +66,23 @@ class MQTT(threading.Thread, MyLog):
                     currentPosition = self.shutter.getPosition(shutterId)
                     if int(msg) > currentPosition:
                         self.shutter.risePartial(shutterId, int(msg))
-                    elif int(msg) < currentPosition:   
+                    elif int(msg) < currentPosition:
                         self.shutter.lowerPartial(shutterId, int(msg))
             else:
                 self.LogError("received unkown message: "+topic+", message: "+msg)
-    
+
         except Exception as e1:
             self.LogError("Exception Occured: " + str(e1))
-    
+
         self.LogInfo("finishing receiveMessageFromMQTT")
 
     def sendMQTT(self, topic, msg):
         self.LogInfo("sending message to MQTT: " + topic + " = " + msg)
         self.t.publish(topic,msg,retain=True)
-        
+
     def sendStartupInfo(self):
         for shutter, shutterId in sorted(self.config.ShuttersByName.items(), key=lambda kv: kv[1]):
-            self.sendMQTT("homeassistant/cover/"+shutterId+"/config", '{"name": "'+shutter+'", "command_topic": "somfy/'+shutterId+'/level/cmd", "position_topic": "somfy/'+shutterId+'/level/set_state", "set_position_topic": "somfy/'+shutterId+'/level/cmd", "payload_open": "100", "payload_close": "0", "state_open": "100", "state_closed": "0"}')
+            self.sendMQTT("homeassistant/cover/"+shutterId+"/config", '{"unique_id":"'+shutterId+'_pi_somfy","name": "'+shutter+'", "command_topic": "somfy/'+shutterId+'/level/cmd", "position_topic": "somfy/'+shutterId+'/level/set_state", "set_position_topic": "somfy/'+shutterId+'/level/cmd", "payload_open": "100", "payload_close": "0", "state_open": "100", "state_closed": "0"}')
 
     def on_connect(self, client, userdata, flags, rc):
         self.LogInfo("Connected to MQTT with result code "+str(rc))
@@ -85,17 +91,18 @@ class MQTT(threading.Thread, MyLog):
             self.t.subscribe("somfy/"+shutterId+"/level/cmd")
         if self.config.EnableDiscovery == True:
             self.LogInfo("Sending Home Assistant MQTT Discovery messages")
+            self.t.subscribe("homeassistant/status")
             self.sendStartupInfo()
-            
+
     def set_state(self, shutterId, level):
         self.LogInfo("Received request to set Shutter "+shutterId+" to "+str(level))
         self.sendMQTT("somfy/"+shutterId+"/level/set_state", str(level))
-            
+
     def run(self):
         self.LogInfo("Entering MQTT polling loop")
 
         self.t = paho.Client(client_id="somfy-mqtt-bridge")                           #create client object
-        
+
         # Startup the mqtt listener
         if not (self.config.MQTT_Password.strip() == ""):
            self.t.username_pw_set(username=self.config.MQTT_User,password=self.config.MQTT_Password)
@@ -107,7 +114,7 @@ class MQTT(threading.Thread, MyLog):
 
         if self.config.EnableDiscovery == True:
             self.sendStartupInfo()
-            
+
         self.shutter.registerCallBack(self.set_state)
 
         error = 0
@@ -121,9 +128,9 @@ class MQTT(threading.Thread, MyLog):
                 self.LogInfo("Critical exception " + str(error) + ": "+ str(e.args))
                 print("Trying not to shut down MQTT")
                 time.sleep(0.5) #Wait half a second when an exception occurs
-        
+
         self.t.loop_stop()
         self.LogError("Received Signal to shut down MQTT thread")
         return
 
- 
+
